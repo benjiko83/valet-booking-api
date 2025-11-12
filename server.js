@@ -15,7 +15,7 @@ app.use(express.json());
 // PostgreSQL Connection Pool (Neon Cloud)
 // Configured for 10 concurrent users
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || 'postgresql://neondb_owner:npg_UdowZ3YzvGf5@ep-odd-surf-a45ld43p-pooler.us-east-1.aws.neon.tech/neondb?sslmode=require',
+  connectionString: process.env.DATABASE_URL || 'postgresql://postgres:bEvfFhIAhCMFpaWLfXtBdbahynRddkWh@metro.proxy.rlwy.net:51172/railway',
   max: 20,                           // Max pool size (10 users × 2 connections per user)
   idleTimeoutMillis: 30000,          // Close idle connections after 30 seconds
   connectionTimeoutMillis: 5000,     // Timeout if can't get connection in 5 seconds
