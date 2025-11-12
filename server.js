@@ -771,8 +771,8 @@ app.post('/api/valet-bookings', async (req, res) => {
         booking_id, booking_code, vehicle_make, vehicle_model, vehicle_registration,
         vehicle_colour, vehicle_condition, customer_name, customer_email, customer_phone,
         booking_date, booking_time, valet_id, valet_name, status, paint_protection,
-        special_requirements, notes, key_number, source, prep_tracker_id, created_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, NOW())`,
+        special_requirements, notes, key_number, source, prep_tracker_id
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)`,
       [
         booking_id, booking_code, vehicle_make, vehicle_model, vehicle_registration,
         vehicle_colour || null, vehicle_condition || 'used', customer_name || null,
