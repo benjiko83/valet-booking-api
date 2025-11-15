@@ -426,6 +426,24 @@ app.post('/api/availability/batch', async (req, res) => {
       }
 
       const maxCapacity = rota[capacityKey] || 3;
+      
+      // Count total bookings for this day (daily capacity check)
+      let totalDayBookings = 0;
+      Object.keys(bookings).forEach(key => {
+        if (key.startsWith(`${dateStr}:`)) {
+          totalDayBookings += bookings[key];
+        }
+      });
+      
+      // If day is at/over capacity, no slots available
+      if (totalDayBookings >= maxCapacity) {
+        availability[dateStr] = { available: 0, total: 0 };
+        return;
+      }
+      
+      // Calculate remaining capacity for the day
+      const remainingDayCapacity = maxCapacity - totalDayBookings;
+      
       let totalAvailable = 0;
       let totalSlots = 0;
 
@@ -439,15 +457,19 @@ app.post('/api/availability/batch', async (req, res) => {
 
         const bookingKey = `${dateStr}:${slotTime}`;
         const bookedCount = bookings[bookingKey] || 0;
-        const isSlotFull = bookedCount >= maxCapacity;
+        const isSlotFull = bookedCount >= 1; // Each time slot can only have 1 booking per valet
 
         totalSlots += 1;
-        if (!isSlotFull) {
+        if (!isSlotFull && totalDayBookings < maxCapacity) {
           totalAvailable += 1;
         }
       }
 
-      availability[dateStr] = { available: totalAvailable, total: totalSlots };
+      // Cap available slots to remaining day capacity
+      availability[dateStr] = { 
+        available: Math.min(totalAvailable, remainingDayCapacity), 
+        total: totalSlots 
+      };
     });
 
     res.json({
@@ -527,7 +549,33 @@ app.get('/api/availability/slots/:valet_id/:date', async (req, res) => {
     const slots = [];
     const maxCapacity = rota[capacityKey] || 3;
     
-    // Get ALL bookings for this date in ONE query! (not per-slot)
+    // Get total bookings for the day
+    const dayBookingsResult = await connection.query(
+      `SELECT COUNT(*) as total_bookings FROM valet_bookings WHERE valet_id = $1 AND DATE(booking_date) = $2 AND status NOT IN ('cancelled', 'completed')`,
+      [valet_id, date]
+    );
+    
+    const totalDayBookings = parseInt(dayBookingsResult.rows[0].total_bookings);
+    const bookableSlots = Math.max(0, maxCapacity - totalDayBookings);
+    
+    // If at capacity, return no available slots
+    if (totalDayBookings >= maxCapacity) {
+      return res.json({
+        success: true,
+        date,
+        valet_id,
+        day_of_week: dayName,
+        is_available_today: rota[availabilityKey],
+        max_slots_per_day: maxCapacity,
+        total_slots_available: 0,
+        available_slots: 0,
+        bookable_slots: 0,
+        lead_time_hours: setting.lead_time_hours,
+        slots: []
+      });
+    }
+    
+    // Get ALL bookings for this date by time
     const allBookingsResult = await connection.query(
       `SELECT booking_time, COUNT(*) as count FROM valet_bookings 
        WHERE valet_id = $1 AND DATE(booking_date) = $2 AND status NOT IN ('cancelled', 'completed')
@@ -549,13 +597,13 @@ app.get('/api/availability/slots/:valet_id/:date', async (req, res) => {
       if (currentMin >= breakStartTotalMin && currentMin < breakEndTotalMin) continue;
       
       const bookedCount = bookingsByTime[slotTime] || 0;
-      const isSlotFull = bookedCount >= maxCapacity;
+      const isSlotFull = bookedCount >= 1; // Each time slot can only have 1 booking per valet
       
       slots.push({ 
         time: slotTime, 
         available: !isSlotFull, 
         booked_count: bookedCount,
-        capacity: maxCapacity
+        capacity: 1
       });
     }
     
@@ -576,13 +624,8 @@ app.get('/api/availability/slots/:valet_id/:date', async (req, res) => {
       return { ...slot, can_book: canBook };
     });
     
-    const dayBookingsResult = await connection.query(
-      `SELECT COUNT(*) as total_bookings FROM valet_bookings WHERE valet_id = $1 AND DATE(booking_date) = $2 AND status NOT IN ('cancelled', 'completed')`,
-      [valet_id, date]
-    );
-    
-    const totalDayBookings = parseInt(dayBookingsResult.rows[0].total_bookings);
-    const bookableSlots = Math.max(0, maxCapacity - totalDayBookings);
+    // Cap available slots to remaining daily capacity
+    const cappedFinalSlots = finalSlots.slice(0, bookableSlots);
     
     res.json({
       success: true,
@@ -592,10 +635,10 @@ app.get('/api/availability/slots/:valet_id/:date', async (req, res) => {
       is_available_today: rota[availabilityKey],
       max_slots_per_day: maxCapacity,
       total_slots_available: slots.length,
-      available_slots: finalSlots.length,
+      available_slots: cappedFinalSlots.length,
       bookable_slots: bookableSlots,
       lead_time_hours: leadTimeHours,
-      slots: finalSlots
+      slots: cappedFinalSlots
     });
     
   } catch (error) {
