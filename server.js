@@ -764,6 +764,52 @@ app.post('/api/valet-bookings', async (req, res) => {
       });
     }
 
+    // ========== MAX CAPACITY VALIDATION START ==========
+    // Check if valet has reached max daily capacity
+    const rotaResult = await connection.query(
+      'SELECT * FROM valet_rota WHERE valet_id = $1 AND is_active = $2',
+      [valet_id, true]
+    );
+
+    if (rotaResult.rows.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'No active rota found for this valet'
+      });
+    }
+
+    const rota = rotaResult.rows[0];
+    const dateObj = new Date(booking_date + 'T00:00:00Z');
+    const dayOfWeek = dateObj.getUTCDay();
+    const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    const dayName = dayNames[dayOfWeek];
+    const capacityKey = `${dayName}_capacity`;
+    const maxDailyCapacity = rota[capacityKey] || 3;
+
+    // Count existing bookings for this valet on this date
+    const bookingCountResult = await connection.query(
+      `SELECT COUNT(*) as total_bookings 
+       FROM valet_bookings 
+       WHERE valet_id = $1 
+       AND DATE(booking_date) = $2 
+       AND status NOT IN ('cancelled', 'completed')`,
+      [valet_id, booking_date]
+    );
+
+    const currentBookings = parseInt(bookingCountResult.rows[0].total_bookings);
+
+    // Check if max capacity reached
+    if (currentBookings >= maxDailyCapacity) {
+      return res.status(409).json({
+        success: false,
+        error: 'Maximum daily slots reached',
+        message: `This valet has reached their maximum capacity of ${maxDailyCapacity} bookings for ${booking_date}. Current bookings: ${currentBookings}.`,
+        max_capacity: maxDailyCapacity,
+        current_bookings: currentBookings
+      });
+    }
+    // ========== MAX CAPACITY VALIDATION END ==========
+
     const booking_id = uuidv4();
     const booking_code = `VB-${Date.now()}`;
 
